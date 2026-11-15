@@ -39,7 +39,12 @@ public final class RfbServerTest {
             catch (IOException expected) { check(true, "stop closes listening port"); }
         } finally { server.close(); }
         java.util.concurrent.atomic.AtomicInteger inputs = new java.util.concurrent.atomic.AtomicInteger();
-        try (RfbServer owned = new RfbServer("127.0.0.1", 0, "password", frames, value -> {}, (mask, x, y) -> inputs.incrementAndGet())) {
+        java.util.concurrent.atomic.AtomicInteger outsideReleases = new java.util.concurrent.atomic.AtomicInteger();
+        RfbServer.PointerListener receiver = new RfbServer.PointerListener() {
+            public void pointer(int mask, int x, int y) { inputs.incrementAndGet(); }
+            public void releasedOutside() { outsideReleases.incrementAndGet(); }
+        };
+        try (RfbServer owned = new RfbServer("127.0.0.1", 0, "password", frames, value -> {}, receiver)) {
             owned.start();
             try (VncClient client = new VncClient("127.0.0.1", owned.port(), "password")) {
                 client.out.write(new byte[]{5,1,0,1,0,1}); client.out.flush();
@@ -48,6 +53,9 @@ public final class RfbServerTest {
                 client.out.write(new byte[]{5,1,0,10,0,10}); client.out.flush();
                 client.request(0, 0, 2, 2, 4);
                 check(inputs.get() == 1, "out-of-bounds pointer is discarded");
+                client.out.write(new byte[]{5,0,0,10,0,10}); client.out.flush();
+                client.request(0,0,2,2,4);
+                check(outsideReleases.get() == 1 && inputs.get() == 1, "outside release ends held input without forwarding invalid coordinates");
                 client.out.writeByte(2); client.out.writeByte(0); client.out.writeShort(1); client.out.writeInt(-239);
                 client.out.write(new byte[]{3,0,0,0,0,0,0,2,0,2}); client.out.flush();
                 check(client.in.readUnsignedByte()==0 && client.in.readUnsignedByte()==0 && client.in.readUnsignedShort()==2, "cursor shape is sent only after negotiation");

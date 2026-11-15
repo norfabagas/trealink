@@ -32,6 +32,7 @@ public final class RfbServer implements AutoCloseable {
     public interface Listener { void status(String value); }
     public interface PointerListener {
         void pointer(int buttons, int x, int y);
+        default void releasedOutside() { }
         default void disconnected() { }
     }
     private final AtomicReference<Frame> frames;
@@ -147,6 +148,7 @@ public final class RfbServer implements AutoCloseable {
                     int buttons = in.readUnsignedByte(), px = in.readUnsignedShort(), py = in.readUnsignedShort();
                     Frame target = frames.get();
                     if (pointerListener != null && px < target.width && py < target.height) pointerListener.pointer(buttons, px, py);
+                    else if (pointerListener != null && (buttons & 1) == 0) pointerListener.releasedOutside();
                     break;
                 case 6:
                     in.skipBytes(3); int length = in.readInt();

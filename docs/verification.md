@@ -1,12 +1,12 @@
 # Verification
 
-Date: 2026-11-15. Host: Windows, Java 21.0.13. APK: `dev.trealink.app`, version 0.3.0, minimum API 26, target API 35. Android execution used a new disposable x86_64, 16 KB-page emulator running **Android 17** with a 320 × 640 phone display. The independent display diagnostic uses an additional private 800 × 480 virtual display. No physical phone or receiver was attached; Galaxy A07 / One UI 9 and Kenwood DMXGT400R compatibility remains untested.
+Date: 2026-11-15. Host: Windows, Java 21.0.13. APK: `dev.trealink.app`, version 0.3.1, minimum API 26, target API 35. Android execution used a disposable x86_64, 16 KB-page emulator running **Android 17** with a 320 × 640 phone display. The independent display diagnostic uses an additional private 800 × 480 virtual display. No physical phone or receiver was attached; Galaxy A07 / One UI 9 and Kenwood DMXGT400R compatibility remains untested.
 
 ## Build and protocol
 
 `scripts/build.ps1` compiled the Java application against Android platform 35, converted it to DEX, packaged and aligned it, and verified its v2/v3 APK signatures. The build reads no contents from the reference APK.
 
-`scripts/test.ps1` passed **17** real socket-level checks against `RfbServer`:
+`scripts/test.ps1` passed **18** real socket-level checks against `RfbServer`:
 
 1. Wrong password is rejected.
 2. RFB 3.8 authentication and framebuffer dimensions are correct.
@@ -22,9 +22,10 @@ Date: 2026-11-15. Host: Windows, Java 21.0.13. APK: `dev.trealink.app`, version 
 12. Stopping closes the listening port.
 13. Explicitly configured app-owned pointer callbacks receive authenticated, in-bounds pointer events.
 14. Out-of-bounds pointer events are dropped.
-15. Cursor shapes are emitted only after viewer negotiation.
-16. The negotiated cursor shape has zero dimensions.
-17. Framebuffer data remains correctly aligned after the cursor update.
+15. A release outside the framebuffer ends held input without forwarding invalid coordinates.
+16. Cursor shapes are emitted only after viewer negotiation.
+17. The negotiated cursor shape has zero dimensions.
+18. Framebuffer data remains correctly aligned after the cursor update.
 
 The test client implements its authentication separately from the server and compares actual wire bytes. It does not mock the socket transport.
 
@@ -32,7 +33,7 @@ The same script passed **10 coordinate-mapping checks** covering scaled portrait
 
 ## Direct touch on Android
 
-`scripts/test-touch.ps1` passed **10** checks against native Android controls using the real user-enabled Accessibility gesture API and actual authenticated RFB packets:
+`scripts/test-touch.ps1` passed **11** checks against native Android controls using the real user-enabled Accessibility gesture API and actual authenticated RFB packets:
 
 | Check | Observed result |
 | --- | --- |
@@ -43,6 +44,7 @@ The same script passed **10 coordinate-mapping checks** covering scaled portrait
 | Continuous drag | Native SeekBar moves past 70% |
 | Swipe | Native ScrollView reveals later items |
 | Viewer disconnect during a held touch | The native view receives finger-up |
+| Release outside framebuffer while viewer stays connected | Finger-up arrives before disconnect; invalid coordinates are not injected |
 | Cross-app touch | Opens the read-only Connected devices page in Android Settings |
 | Local control off | Same remote tap no longer clicks the button |
 | Stop sharing | Input session ends and the network listener closes |
@@ -53,7 +55,7 @@ Full local results: `.local/touch-test/results.json`; a sanitized copy is commit
 
 ## Android end to end
 
-`scripts/test-android.ps1` covers **13** Android checks: nine for the original mirroring flow and four for the independent-display diagnostic. The nine mirroring regressions passed; the four independent-display checks passed in a focused `-ExtensionOnly` run using the non-suppressing UI probe. Tests install without clearing data and drive the real Android consent UI. The focused run waits for an actual streamed-button pixel change after a tap. The observed behavior is:
+`scripts/test-android.ps1` passed **13** Android checks in a single full run against 0.3.1: nine for the original mirroring flow and four for the independent-display diagnostic. Tests install without clearing data and drive the real Android consent UI. The independent input check waits for an actual streamed-button pixel change after a tap. The observed behavior is:
 
 | Operation | Result and scope |
 | --- | --- |
@@ -72,6 +74,8 @@ Full local results: `.local/touch-test/results.json`; a sanitized copy is commit
 | Independent stop | Virtual display is removed and port 5900 closes |
 
 Local outputs: `.local/android-test/results.json`, `usb-frame.png`, `settings-frame.png`, `network-frame.png`, `extend-frame.png`, `extend-tap.png`, `extend-phone-settings.png`, and `stopped-ui.png`. Session-bearing screenshots are kept local; passwords expire when sessions stop.
+
+A sanitized result is committed at [test-results/android-mirroring.json](test-results/android-mirroring.json). The post-test audit found no crash-buffer entries or `Trealink`/`AndroidRuntime` error entries since this smoke session began. Projection is null, TCP 5900 is closed, Accessibility settings are restored, and forwarding/redirect rules are removed. The emulator redirect cleanup syntax was corrected after the audit found a retained redirect; an add/remove check verifies cleanup and a rejected-console-command check verifies that emulator `KO:` responses fail the script even when ADB exits zero. See [the smoke report](smoke-test-2026-11-15.md).
 
 The network check demonstrates the Wi-Fi-mode binding and protocol over emulated networking. **It does not establish physical LAN performance or JVC/Kenwood receiver compatibility.** The app uses standard raw RFB, not the original proprietary automotive transport/extensions. Physical USB, audio, receiver pairing, receiver-originated touch, DRM capture and other Android versions are unverified or unsupported as described in the README.
 

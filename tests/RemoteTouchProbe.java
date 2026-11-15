@@ -12,6 +12,13 @@ public final class RemoteTouchProbe {
             String kind = args[3];
             if (kind.equals("hover")) { pointer(client,0,x,y); Thread.sleep(150); return; }
             pointer(client,1,x,y);
+            if (kind.equals("outside")) {
+                Thread.sleep(100);
+                pointer(client,0,client.width+1,client.height+1);
+                System.out.println("OUTSIDE_RELEASE_SENT"); System.out.flush();
+                Thread.sleep(10000); // Keep connected so disconnect cleanup cannot mask a dropped UP.
+                return;
+            }
             if (kind.equals("swipe")) {
                 int x2 = Integer.parseInt(args[6]), y2 = Integer.parseInt(args[7]);
                 for (int i=1;i<=16;i++) { Thread.sleep(30); pointer(client,1,x+(x2-x)*i/16,y+(y2-y)*i/16); }

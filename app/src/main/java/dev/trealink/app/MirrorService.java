@@ -84,6 +84,13 @@ public final class MirrorService extends Service {
                         else RemoteTouchService.pointer(inputSession, buttons, x, y);
                     });
                 }
+                @Override public void releasedOutside() {
+                    main.post(() -> {
+                        if (!running || controlSessionId != inputSession) return;
+                        if (extending && extensionView != null) extensionView.resetPointer();
+                        else RemoteTouchService.release(inputSession);
+                    });
+                }
                 @Override public void disconnected() { main.post(() -> RemoteTouchService.release(inputSession)); }
             };
             server = new RfbServer(mode.equals("Wi-Fi") ? "0.0.0.0" : "127.0.0.1", 5900, password, frames, value -> {

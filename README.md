@@ -10,7 +10,9 @@ This is a VNC mirroring prototype with **optional direct touch control**. It is 
 
 The current priority for **Galaxy A07 / One UI 9 and Kenwood DMXGT400R** is direct touch on a mirrored phone. The earlier independent-display diagnostic is retained as an experiment. Genuine Android Auto hosting and the actual T-Link receiver transport remain unimplemented. See [the hardware findings and integration design](docs/extension-mode.md).
 
-## Direct touch control (0.3.0)
+## Direct touch control (0.3.1)
+
+The 0.3.1 smoke-test update fixes a held-finger edge case: releasing outside the viewer image now ends the touch at its last valid position, without injecting out-of-bounds coordinates. See [the smoke-test report](docs/smoke-test-2026-11-15.md).
 
 1. Open **Menu → Touch control → Enable direct touch**.
 2. In Android Accessibility settings, enable **Trealink Touch Control**. On Samsung, the service may appear under **Installed apps**. Android may require the per-app **Allow restricted settings** action for a sideloaded APK; follow the system's available setup flow.

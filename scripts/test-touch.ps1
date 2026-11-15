@@ -110,7 +110,22 @@ try {
     Remote-Text 'Tap count: 1' 'down'
     if (!(Find-Node 'Finger: up')) { throw 'Viewer disconnect left a held finger.' }
     Pass 'viewer disconnect releases a held touch'
-    ADB @('shell','am','start','-a','android.settings.SETTINGS') | Out-Null
+    $target=Find-Node 'Tap count: 2'
+    if (!$target) { $target=Find-Node 'Tap count: 1' }
+    if (!$target) { throw 'Missing button for outside-release test.' }
+    $b=Bounds $target
+    $launch=[Diagnostics.ProcessStartInfo]::new("$Jdk\bin\java.exe")
+    $launch.UseShellExecute=$false; $launch.CreateNoWindow=$true
+    $launch.RedirectStandardOutput=$true; $launch.RedirectStandardError=$true
+    foreach ($argument in @('-cp',"$project\build\tests",'dev.trealink.app.RemoteTouchProbe','127.0.0.1',"$script:port",$script:password,'outside',"$([int](($b[0]+$b[2])/2))","$([int](($b[1]+$b[3])/2))")) { $launch.ArgumentList.Add($argument) }
+    $outside=[Diagnostics.Process]::Start($launch)
+    try {
+        if ($outside.StandardOutput.ReadLine() -ne 'OUTSIDE_RELEASE_SENT') { throw 'Outside-release probe failed to send input.' }
+        if (!(Find-Node 'Finger: up') -or $outside.HasExited) { throw 'A release outside the image left a finger down while the viewer stayed connected.' }
+        Pass 'release outside the image lifts the Android finger before viewer disconnect'
+        if (!$outside.WaitForExit(12000) -or $outside.ExitCode -ne 0) { throw 'Outside-release probe did not finish cleanly.' }
+    } finally { if (!$outside.HasExited) { $outside.Kill() }; $outside.Dispose() }
+    ADB @('shell','am','start','-W','-f','0x14000000','-a','android.settings.SETTINGS') | Out-Null
     Remote-Text 'Connected devices' 'tap'
     $xml=Snapshot
     if (!($xml.SelectNodes('//node') | Where-Object { $_.text -in @('Pair new device','Connection preferences') })) { throw 'Cross-app touch did not navigate Android Settings.' }

@@ -8,7 +8,7 @@ $adb = "$Sdk\platform-tools\adb.exe"
 $script:checks = [Collections.Generic.List[string]]::new()
 function ADB([string[]]$Arguments) {
     $result = & $adb -s $Serial @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "ADB failed: $result" }
+    if ($LASTEXITCODE -ne 0 -or ($Arguments[0] -eq 'emu' -and ($result -match '^KO:'))) { throw "ADB failed: $result" }
     return $result
 }
 function Snapshot {
@@ -69,6 +69,7 @@ ADB @('shell','input','keyevent','KEYCODE_MENU') | Out-Null
 ADB @('shell','am','start','-W','-f','0x14000000','-n','dev.trealink.app/.MainActivity') | Out-Null
 $forwardPort = $null
 $networkRedirect = $false
+$completed = $false
 try {
     $xml = Snapshot
     if ($xml.SelectNodes('//node') | Where-Object text -EQ 'Stop mirroring') { Stop-Sharing }
@@ -154,7 +155,9 @@ try {
     @{ date = (Get-Date).ToString('yyyy-MM-dd'); serial = $Serial; checks = @($script:checks); result = 'PASS'; physicalLanTested = $false; receiverPairingTested = $false } |
         ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $output $(if ($ExtensionOnly) { 'results-extension.json' } else { 'results.json' }))
     Write-Output "RESULT $($script:checks.Count) Android checks passed. Evidence: $output"
+    $completed = $true
 } finally {
+    if (!$completed) { ADB @('shell','am','force-stop','dev.trealink.app') | Out-Null }
     if ($forwardPort) { ADB @('forward','--remove',"tcp:$forwardPort") | Out-Null }
-    if ($networkRedirect) { ADB @('emu','redir','del','tcp:15902:5900') | Out-Null }
+    if ($networkRedirect) { ADB @('emu','redir','del','tcp:15902') | Out-Null }
 }

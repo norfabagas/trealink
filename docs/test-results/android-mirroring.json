@@ -1,0 +1,22 @@
+{
+  "checks": [
+    "permission cancellation returns to ready UI",
+    "Android full-screen permission and foreground capture",
+    "USB ADB tunnel authenticates and delivers captured pixels",
+    "sharing continues in background and updates after app switch",
+    "Stop mirroring releases projection and closes listener",
+    "new session requires consent and rotates password",
+    "Wi-Fi mode binds network interface and serves via emulator NAT",
+    "second session stops cleanly",
+    "system screen-lock revocation releases capture and network listener",
+    "independent display starts without a phone screen-capture grant",
+    "phone opens Settings while viewer retains independent test-surface pixels",
+    "viewer tap reaches only the independent test surface and preserves phone app focus",
+    "stopping extension removes its virtual display and closes the listener"
+  ],
+  "result": "PASS",
+  "receiverPairingTested": false,
+  "date": "2026-11-15",
+  "physicalLanTested": false,
+  "serial": "emulator-5554"
+}

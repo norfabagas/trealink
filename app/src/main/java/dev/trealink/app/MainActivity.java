@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
             else if (choice == 2) outputMode();
             else if (choice == 3) touchControl();
             else if (choice == 4) startActivity(new Intent(this, TouchTestActivity.class));
-            else new AlertDialog.Builder(this).setTitle("Trealink 0.3.0").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Phone mirroring with optional Accessibility-based direct touch, plus an independent display diagnostic.\n\nJVC/Kenwood receiver pairing, Android Auto hosting and audio remain unimplemented. Touch control requires explicit setup and full-screen capture.").setPositiveButton("OK", null).show();
+            else new AlertDialog.Builder(this).setTitle("Trealink 0.3.1").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Phone mirroring with optional Accessibility-based direct touch, plus an independent display diagnostic.\n\nJVC/Kenwood receiver pairing, Android Auto hosting and audio remain unimplemented. Touch control requires explicit setup and full-screen capture.").setPositiveButton("OK", null).show();
         }).show();
     }
     private void touchControl() {
