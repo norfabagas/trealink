@@ -5,6 +5,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Presentation;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
@@ -29,6 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MirrorService extends Service {
     public static volatile boolean running;
+    public static volatile boolean extending;
+    public static volatile int carTapCount;
     public static volatile String status = "Ready to connect", password = "", mode = "USB";
     public static volatile int frameCount;
     private MediaProjection projection;
@@ -36,35 +39,47 @@ public final class MirrorService extends Service {
     private ImageReader reader;
     private HandlerThread captureThread;
     private RfbServer server;
+    private Presentation presentation;
+    private ExtensionTestView extensionView;
     private long lastFrame;
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         if (running) return START_NOT_STICKY;
+        extending = intent.getBooleanExtra("extend", false);
         Intent token = intent.getParcelableExtra("token");
-        if (token == null) { status = "Screen-sharing permission was not granted"; stopSelf(); return START_NOT_STICKY; }
+        if (token == null && !extending) { status = "Screen-sharing permission was not granted"; stopSelf(); return START_NOT_STICKY; }
         try {
             getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("mirror", "Screen sharing", NotificationManager.IMPORTANCE_LOW));
             PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             PendingIntent stop = PendingIntent.getService(this, 1, new Intent(this, MirrorService.class).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             Notification notification = new Notification.Builder(this, "mirror").setSmallIcon(android.R.drawable.ic_menu_share)
-                    .setContentTitle("Trealink is sharing your screen").setContentText("Open Trealink for your viewer address. Tap Stop to end.")
+                    .setContentTitle(extending ? "Trealink independent display test" : "Trealink is sharing your screen").setContentText("Open Trealink for your viewer address. Tap Stop to end.")
                     .setContentIntent(open).setOngoing(true).addAction(android.R.drawable.ic_media_pause, "Stop", stop).build();
-            if (Build.VERSION.SDK_INT >= 29) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            if (Build.VERSION.SDK_INT >= 29) startForeground(1, notification, extending ? ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE : ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
             else startForeground(1, notification);
             mode = intent.getBooleanExtra("wifi", false) ? "Wi-Fi" : "USB";
-            password = newPassword(); frameCount = 0;
+            password = newPassword(); frameCount = 0; carTapCount = 0;
             captureThread = new HandlerThread("trealink-capture"); captureThread.start();
             Handler handler = new Handler(captureThread.getLooper());
             DisplayMetrics metrics = new DisplayMetrics();
             getSystemService(WindowManager.class).getDefaultDisplay().getRealMetrics(metrics);
             float scale = Math.min(1f, Math.min(720f / metrics.widthPixels, 1280f / metrics.heightPixels));
-            int width = Math.max(2, ((int)(metrics.widthPixels * scale)) & ~1);
-            int height = Math.max(2, ((int)(metrics.heightPixels * scale)) & ~1);
+            int width = extending ? 800 : Math.max(2, ((int)(metrics.widthPixels * scale)) & ~1);
+            int height = extending ? 480 : Math.max(2, ((int)(metrics.heightPixels * scale)) & ~1);
             AtomicReference<RfbServer.Frame> frames = new AtomicReference<>(new RfbServer.Frame(width, height, new int[width * height]));
-            server = new RfbServer(mode.equals("Wi-Fi") ? "0.0.0.0" : "127.0.0.1", 5900, password, frames, value -> { if (running) status = value; });
-            projection = getSystemService(MediaProjectionManager.class).getMediaProjection(Activity.RESULT_OK, token);
-            projection.registerCallback(new MediaProjection.Callback() { @Override public void onStop() { stopSelf(); } }, new Handler(getMainLooper()));
+            Handler main = new Handler(getMainLooper());
+            RfbServer.PointerListener input = extending ? (buttons, x, y) -> main.post(() -> {
+                if (running && extending && extensionView != null) extensionView.pointer(buttons, x, y);
+            }) : null;
+            server = new RfbServer(mode.equals("Wi-Fi") ? "0.0.0.0" : "127.0.0.1", 5900, password, frames, value -> {
+                if (running) status = value;
+                if (value.equals("Waiting for viewer")) main.post(() -> { if (extensionView != null) extensionView.resetPointer(); });
+            }, input);
+            if (!extending) {
+                projection = getSystemService(MediaProjectionManager.class).getMediaProjection(Activity.RESULT_OK, token);
+                projection.registerCallback(new MediaProjection.Callback() { @Override public void onStop() { stopSelf(); } }, main);
+            }
             reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
             reader.setOnImageAvailableListener(source -> {
                 try (Image image = source.acquireLatestImage()) {
@@ -81,8 +96,17 @@ public final class MirrorService extends Service {
                     lastFrame = System.currentTimeMillis();
                 } catch (RuntimeException e) { Log.e("Trealink", "Capture failed", e); status = "Capture failed. Start a new session."; stopSelf(); }
             }, handler);
-            display = projection.createVirtualDisplay("Trealink", width, height, metrics.densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
+            if (extending) {
+                display = getSystemService(DisplayManager.class).createVirtualDisplay("Trealink independent test", width, height, 160,
+                        reader.getSurface(), DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION);
+                if (display == null) throw new IOException("Independent virtual display is unavailable");
+                presentation = new Presentation(this, display.getDisplay(), android.R.style.Theme_Material_Light_NoActionBar);
+                extensionView = new ExtensionTestView(presentation.getContext());
+                presentation.setContentView(extensionView); presentation.show();
+            } else {
+                display = projection.createVirtualDisplay("Trealink", width, height, metrics.densityDpi,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
+            }
             running = true; status = "Waiting for viewer"; server.start();
         } catch (IOException | RuntimeException e) {
             Log.e("Trealink", "Cannot start sharing", e);
@@ -102,6 +126,8 @@ public final class MirrorService extends Service {
     @Override public void onDestroy() {
         running = false; password = "";
         if (server != null) try { server.close(); } catch (IOException ignored) { }
+        if (presentation != null) presentation.dismiss();
+        extensionView = null;
         if (display != null) display.release();
         if (projection != null) projection.stop();
         // Serialize reader disposal after any in-flight buffer conversion on its own thread.
@@ -109,6 +135,7 @@ public final class MirrorService extends Service {
             new Handler(captureThread.getLooper()).post(() -> { if (reader != null) reader.close(); captureThread.quitSafely(); });
         } else if (reader != null) reader.close();
         if (!status.startsWith("Cannot start") && !status.startsWith("Capture failed")) status = "Ready to connect";
+        extending = false;
         stopForeground(true);
         super.onDestroy();
     }

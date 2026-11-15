@@ -38,6 +38,18 @@ public final class RfbServerTest {
             try { new Socket("127.0.0.1", port).close(); throw new AssertionError("Port stayed open"); }
             catch (IOException expected) { check(true, "stop closes listening port"); }
         } finally { server.close(); }
+        java.util.concurrent.atomic.AtomicInteger inputs = new java.util.concurrent.atomic.AtomicInteger();
+        try (RfbServer owned = new RfbServer("127.0.0.1", 0, "password", frames, value -> {}, (mask, x, y) -> inputs.incrementAndGet())) {
+            owned.start();
+            try (VncClient client = new VncClient("127.0.0.1", owned.port(), "password")) {
+                client.out.write(new byte[]{5,1,0,1,0,1}); client.out.flush();
+                client.request(0, 0, 2, 2, 4);
+                check(inputs.get() == 1, "explicit app-owned pointer callback receives authenticated in-bounds events");
+                client.out.write(new byte[]{5,1,0,10,0,10}); client.out.flush();
+                client.request(0, 0, 2, 2, 4);
+                check(inputs.get() == 1, "out-of-bounds pointer is discarded");
+            }
+        }
         System.out.println("RESULT " + passed + " checks passed");
     }
 }

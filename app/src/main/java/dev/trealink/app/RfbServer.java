@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
-/** Small view-only RFB 3.8 server. No original APK code or native libraries. */
+/** RFB 3.8: view-only mirroring, or explicitly routed app-owned test pointers. */
 public final class RfbServer implements AutoCloseable {
     public static final class Frame {
         public final int width, height;
@@ -30,18 +30,24 @@ public final class RfbServer implements AutoCloseable {
         }
     }
     public interface Listener { void status(String value); }
+    public interface PointerListener { void pointer(int buttons, int x, int y); }
     private final AtomicReference<Frame> frames;
     private final String password;
     private final Listener listener;
+    private final PointerListener pointerListener;
     private final ServerSocket server;
     private volatile boolean closed;
     private volatile Socket client;
     private Thread worker;
 
     public RfbServer(String host, int port, String password, AtomicReference<Frame> frames, Listener listener) throws IOException {
+        this(host, port, password, frames, listener, null);
+    }
+    public RfbServer(String host, int port, String password, AtomicReference<Frame> frames, Listener listener, PointerListener pointerListener) throws IOException {
         if (password == null || !password.matches("[!-~]{8}")) throw new IllegalArgumentException("Use exactly 8 ASCII password characters");
         if (frames.get() == null) throw new IllegalArgumentException("Initial frame required");
         this.password = password; this.frames = frames; this.listener = listener;
+        this.pointerListener = pointerListener;
         server = new ServerSocket(port, 2, InetAddress.getByName(host));
     }
     public int port() { return server.getLocalPort(); }
@@ -85,9 +91,9 @@ public final class RfbServer implements AutoCloseable {
         out.write(new byte[]{32, 24, 0, 1});
         out.writeShort(255); out.writeShort(255); out.writeShort(255);
         out.write(new byte[]{16, 8, 0, 0, 0, 0});
-        byte[] name = "Trealink · view only".getBytes(StandardCharsets.UTF_8);
+        byte[] name = (pointerListener == null ? "Trealink · view only" : "Trealink · independent display test").getBytes(StandardCharsets.UTF_8);
         out.writeInt(name.length); out.write(name); out.flush();
-        listener.status("Viewer connected · view only");
+        listener.status(pointerListener == null ? "Viewer connected · view only" : "Viewer connected · extend test");
         long lastSent = 0;
         while (!closed) {
             switch (in.readUnsignedByte()) {
@@ -128,7 +134,11 @@ public final class RfbServer implements AutoCloseable {
                     out.flush(); lastSent = System.currentTimeMillis();
                     break;
                 case 4: in.readUnsignedByte(); in.readUnsignedShort(); in.readInt(); break; // View only: consume keys.
-                case 5: in.readUnsignedByte(); in.readUnsignedShort(); in.readUnsignedShort(); break; // Consume pointer.
+                case 5:
+                    int buttons = in.readUnsignedByte(), px = in.readUnsignedShort(), py = in.readUnsignedShort();
+                    Frame target = frames.get();
+                    if (pointerListener != null && px < target.width && py < target.height) pointerListener.pointer(buttons, px, py);
+                    break;
                 case 6:
                     in.skipBytes(3); int length = in.readInt();
                     if (length < 0 || length > 65536) throw new IOException("Clipboard message too large");

@@ -31,7 +31,7 @@ public final class MainActivity extends Activity {
     private static final int WINE = Color.rgb(118, 15, 37), INK = Color.rgb(37, 30, 33), MUTED = Color.rgb(114, 102, 106);
     private final Handler handler = new Handler();
     private SharedPreferences preferences;
-    private boolean wifi, requesting;
+    private boolean wifi, requesting, extend;
     private TextView status, connection, session;
     private Button start, usb, wireless;
     private final Runnable refresh = new Runnable() { public void run() { updateState(); handler.postDelayed(this, 1000); } };
@@ -40,6 +40,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         preferences = getSharedPreferences("settings", MODE_PRIVATE);
         wifi = preferences.getBoolean("wifi", false);
+        extend = preferences.getBoolean("extend", false);
         LinearLayout page = column(); page.setBackgroundColor(Color.rgb(250, 247, 248));
         page.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
@@ -76,12 +77,16 @@ public final class MainActivity extends Activity {
         addShortcut(shortcuts, "Web", new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com")));
         body.addView(shortcuts);
         Button help = button("Connection guide"); help.setOnClickListener(v -> guide()); body.addView(help);
-        TextView note = text("Independent T-Link-inspired implementation.\nView-only video · No audio · Receiver pairing not supported", 12, MUTED); note.setGravity(Gravity.CENTER); note.setPadding(0, dp(12), 0, 0); body.addView(note);
+        TextView note = text("Independent T-Link-inspired implementation.\nNo Android Auto host · No audio · Receiver pairing not supported", 12, MUTED); note.setGravity(Gravity.CENTER); note.setPadding(0, dp(12), 0, 0); body.addView(note);
         setContentView(page); updateState();
     }
 
     private void chooseMode(boolean value) { wifi = value; preferences.edit().putBoolean("wifi", value).apply(); updateState(); }
     private void requestProjection() {
+        if (extend) {
+            startForegroundService(new Intent(this, MirrorService.class).putExtra("extend", true).putExtra("wifi", wifi));
+            return;
+        }
         requesting = true; updateState();
         MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
         startActivityForResult(manager.createScreenCaptureIntent(), 42);
@@ -100,13 +105,15 @@ public final class MainActivity extends Activity {
     private void updateState() {
         if (start == null) return;
         boolean active = MirrorService.running;
-        start.setEnabled(!requesting); start.setText(active ? "Stop mirroring" : requesting ? "Waiting for permission…" : "Start mirroring");
+        boolean independent = active ? MirrorService.extending : extend;
+        start.setEnabled(!requesting); start.setText(active ? (independent ? "Stop extend test" : "Stop mirroring") : requesting ? "Waiting for permission…" : independent ? "Start extend test" : "Start mirroring");
         usb.setEnabled(!active && !requesting); wireless.setEnabled(!active && !requesting);
         usb.setTextColor(wifi ? MUTED : WINE); wireless.setTextColor(wifi ? WINE : MUTED);
         status.setText(MirrorService.status);
         boolean network = active ? MirrorService.mode.equals("Wi-Fi") : wifi;
         connection.setText(network ? "Viewer address\n" + addresses() + "\nVNC 3.8 · Same network" : "USB: 127.0.0.1:5901\nadb forward tcp:5901 tcp:5900");
-        session.setText(active ? "Session password: " + MirrorService.password + "\n" + MirrorService.frameCount + " frames captured · view only" : "A new 8-character password appears when sharing starts.");
+        session.setText(active ? "Session password: " + MirrorService.password + "\n" + MirrorService.frameCount + " frames · " + (independent ? "test taps: " + MirrorService.carTapCount : "view only")
+                : independent ? "Independent test surface only.\nAndroid Auto and car pairing are not implemented." : "A new 8-character password appears when sharing starts.");
     }
     private String addresses() {
         java.util.Set<String> addresses = new java.util.LinkedHashSet<>();
@@ -121,11 +128,22 @@ public final class MainActivity extends Activity {
         return addresses.isEmpty() ? "No network address · connect to Wi-Fi first" : android.text.TextUtils.join("\n", addresses);
     }
     private void menu() {
-        new AlertDialog.Builder(this).setTitle("Trealink").setItems(new String[]{"Connection guide", "Wi-Fi settings", "About Trealink"}, (d, choice) -> {
+        new AlertDialog.Builder(this).setTitle("Trealink").setItems(new String[]{"Connection guide", "Wi-Fi settings", "Output mode", "About Trealink"}, (d, choice) -> {
             if (choice == 0) guide();
             else if (choice == 1) launch(new Intent(Settings.ACTION_WIFI_SETTINGS));
-            else new AlertDialog.Builder(this).setTitle("Trealink 0.1.0").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Independently written screen capture and RFB 3.8 server.\n\nNo original binaries are included. JVC/Kenwood receiver pairing, audio and remote input are not implemented. Folder operations are not part of this mirroring app.").setPositiveButton("OK", null).show();
+            else if (choice == 2) outputMode();
+            else new AlertDialog.Builder(this).setTitle("Trealink 0.2.0").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Independent phone mirroring plus an experimental app-owned display test.\n\nThe test accepts pointer input only on its own test surface. Android Auto hosting, JVC/Kenwood receiver pairing, audio and system-wide remote input are not implemented.").setPositiveButton("OK", null).show();
         }).show();
+    }
+    private void outputMode() {
+        if (MirrorService.running || requesting) {
+            new AlertDialog.Builder(this).setMessage("Stop the current session before changing output mode.").setPositiveButton("OK", null).show();
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Output mode")
+                .setSingleChoiceItems(new String[]{"Phone screen mirroring", "Independent display test (no Android Auto)"}, extend ? 1 : 0, (d, item) -> {
+                    extend = item == 1; preferences.edit().putBoolean("extend", extend).apply(); updateState(); d.dismiss();
+                }).setNegativeButton("Cancel", null).show();
     }
     private void guide() {
         new AlertDialog.Builder(this).setTitle("Connect your display").setMessage("1. Choose USB (ADB) or Wi-Fi, then tap Start mirroring. Approve Android's screen-sharing prompt.\n\n2. USB: enable USB debugging on your phone, connect it to your computer, and run adb forward tcp:5901 tcp:5900. Connect a VNC viewer to 127.0.0.1:5901.\n\nWi-Fi: put both devices on the same trusted network. Connect a VNC viewer to the address shown here on port 5900. Standard VNC traffic is not encrypted.\n\n3. Enter the session password from Trealink. Use RFB 3.8 / VNC authentication. Video is view only, up to 5 frames/s. Android protects secure video and password screens.\n\n4. Tap Stop mirroring or Stop in the sharing notification. Rotation uses a fixed-size canvas and may add letterboxing.\n\nThis version does not pair with JVC/Kenwood receivers or carry audio. USB here uses ADB forwarding, not the receiver's USB accessory protocol.")

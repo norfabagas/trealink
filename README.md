@@ -8,7 +8,17 @@ The reference APK is **JVC/Kenwood T-Link**, package `com.jvckenwood.tlink`, a V
 
 This is a working **view-only VNC prototype**, not a drop-in replacement for the proprietary JVC/Kenwood receiver integration. Receiver discovery/pairing, USB accessory transport, H.264 extensions, audio, and remote touch/keyboard control are not implemented. USB mode uses ADB forwarding. No original code, graphics or native libraries are bundled.
 
-An independent car display carrying Android Auto while the phone remains usable is being investigated. See [the extension-mode feasibility and integration design](docs/extension-mode.md). This is a proposal, not a feature of the current APK; Android Auto hosting and the actual T-Link receiver transport both require validation.
+An independent car display carrying Android Auto while the phone remains usable is being investigated for the **Galaxy A07 / One UI 9 and Kenwood DMXGT400R**. The APK now includes a separate **independent-display diagnostic**, described below. Genuine Android Auto hosting and the actual T-Link receiver transport remain unimplemented. See [the hardware findings and integration design](docs/extension-mode.md).
+
+## Independent-display diagnostic (0.2.0)
+
+Open **Menu → Output mode → Independent display test (no Android Auto)**, choose USB (ADB) or Wi-Fi, and tap **Start extend test**. Connect a VNC viewer using the same address/password procedure as mirroring. The viewer shows an independent 800 × 480 test panel while you can open other apps on the phone. Clicking the panel's tap-test region increments only its own counter. This mode does not request phone screen-capture permission.
+
+Tap **Stop extend test** to release the virtual display. Return to **Menu → Output mode → Phone screen mirroring** to use the original mirror mode. The selected output mode is remembered. The A07's lack of DeX is not an obstacle assumed by this design: it uses Android's software display API, with actual A07 behavior still untested. This diagnostic does **not** provide Android Auto or connect to the Kenwood's T-Link USB port.
+
+Emulator evidence: the viewer receives the independent test panel while the phone displays Settings. The viewer tap changes the panel's counter and leaves the phone app focused.
+
+<img src="docs/screenshots/extend-display.png" alt="Independent display received over VNC, with one test tap" width="480" /> <img src="docs/screenshots/extend-phone.png" alt="Phone still displaying Android Settings" width="160" />
 
 ## Run on Android
 
@@ -34,7 +44,7 @@ After approving screen sharing, connect your VNC viewer to **127.0.0.1, TCP port
 
 Put the phone and viewer on the same trusted network. Select **Wi-Fi**, start sharing, then connect the viewer to the phone address shown in Trealink, **TCP port 5900**. Use the displayed session password. The listener opens only while sharing and requires authentication. Standard VNC is unencrypted; this prototype is for a trusted local network, not public Internet exposure.
 
-Tap **Stop mirroring**, use Android's screen-sharing status control, or use **Stop** in the notification if notifications are allowed. Stopping closes the viewer connection and listening socket. Every new session requires Android consent and generates a new password. The app saves only the selected connection mode; screen frames stay in memory.
+Tap **Stop mirroring**, use Android's screen-sharing status control, or use **Stop** in the notification if notifications are allowed. Stopping closes the viewer connection and listening socket. Every phone-mirroring session requires Android capture consent; the independent diagnostic needs no capture grant. Both generate a new session password. The app saves only the selected connection and output modes; frames stay in memory.
 
 ## Build
 
@@ -53,6 +63,8 @@ Prerequisites: JDK 17+, Android SDK platform **35**, and build tools **36.0.0**.
 ```powershell
 .\scripts\test.ps1           # Real socket-level RFB protocol tests
 .\scripts\test-android.ps1   # Automates consent only on a disposable emulator
+# Focus only on independent rendering and input isolation:
+.\scripts\test-android.ps1 -ExtensionOnly
 ```
 
 The Android test uses an existing **disposable** emulator (`emulator-5554` by default), installs Trealink without clearing data, exercises the system consent dialogs, receives actual captured pixels, switches apps, and stops sharing. It also tests the network listener through emulator NAT; that is not a physical Wi-Fi or car-receiver test. Local test evidence is in `.local/android-test/`.
@@ -61,9 +73,9 @@ See [the test results](docs/verification.md) and [REA findings](analysis/finding
 
 ## Current limits
 
-- One viewer at a time; raw true-color framebuffer updates capped at 5 per second.
+- One viewer at a time; raw true-color framebuffer updates capped at 5 per second. Mirror mode is view only; pointer input is accepted only by the independent test panel.
 - Capture is bounded to 720 × 1280 pixels, preserving the initial aspect ratio. Rotation uses a fixed canvas and may letterbox.
-- Secure/DRM screens may be blank, as enforced by Android. No audio or remote input.
+- Secure/DRM screens may be blank, as enforced by Android. No audio or remote input into phone apps.
 - Viewer compatibility is restricted to RFB 3.8 / VNC auth, raw pixels and 8/16/32-bit true-color formats. Compressed encodings are not implemented.
 - Physical device, physical LAN and JVC/Kenwood receiver compatibility are unverified.
 - The APK is a development build. The input APK is ignored by Git; retain your local copy to rerun REA analysis.
