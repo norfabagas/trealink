@@ -48,6 +48,13 @@ public final class RfbServerTest {
                 client.out.write(new byte[]{5,1,0,10,0,10}); client.out.flush();
                 client.request(0, 0, 2, 2, 4);
                 check(inputs.get() == 1, "out-of-bounds pointer is discarded");
+                client.out.writeByte(2); client.out.writeByte(0); client.out.writeShort(1); client.out.writeInt(-239);
+                client.out.write(new byte[]{3,0,0,0,0,0,0,2,0,2}); client.out.flush();
+                check(client.in.readUnsignedByte()==0 && client.in.readUnsignedByte()==0 && client.in.readUnsignedShort()==2, "cursor shape is sent only after negotiation");
+                check(client.in.readUnsignedShort()==0 && client.in.readUnsignedShort()==0 && client.in.readUnsignedShort()==0
+                        && client.in.readUnsignedShort()==0 && client.in.readInt()==-239, "negotiated cursor shape is empty");
+                byte[] rectangle = new byte[12+16]; client.in.readFully(rectangle);
+                check(client.request(0,0,2,2,4).length==16, "frame stream remains aligned after empty cursor update");
             }
         }
         System.out.println("RESULT " + passed + " checks passed");

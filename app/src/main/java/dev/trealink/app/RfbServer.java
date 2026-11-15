@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
-/** RFB 3.8: view-only mirroring, or explicitly routed app-owned test pointers. */
+/** RFB 3.8 frames and absolute pointers; the caller owns input permission and routing. */
 public final class RfbServer implements AutoCloseable {
     public static final class Frame {
         public final int width, height;
@@ -30,7 +30,10 @@ public final class RfbServer implements AutoCloseable {
         }
     }
     public interface Listener { void status(String value); }
-    public interface PointerListener { void pointer(int buttons, int x, int y); }
+    public interface PointerListener {
+        void pointer(int buttons, int x, int y);
+        default void disconnected() { }
+    }
     private final AtomicReference<Frame> frames;
     private final String password;
     private final Listener listener;
@@ -62,7 +65,7 @@ public final class RfbServer implements AutoCloseable {
                     serve(socket);
                 } catch (IOException | GeneralSecurityException e) {
                     if (!closed) listener.status("Waiting for viewer · " + e.getClass().getSimpleName());
-                } finally { client = null; }
+                } finally { client = null; if (pointerListener != null) pointerListener.disconnected(); }
                 if (!closed) listener.status("Waiting for viewer");
             }
         }, "trealink-rfb");
@@ -91,10 +94,11 @@ public final class RfbServer implements AutoCloseable {
         out.write(new byte[]{32, 24, 0, 1});
         out.writeShort(255); out.writeShort(255); out.writeShort(255);
         out.write(new byte[]{16, 8, 0, 0, 0, 0});
-        byte[] name = (pointerListener == null ? "Trealink · view only" : "Trealink · independent display test").getBytes(StandardCharsets.UTF_8);
+        byte[] name = "Trealink".getBytes(StandardCharsets.UTF_8);
         out.writeInt(name.length); out.write(name); out.flush();
-        listener.status(pointerListener == null ? "Viewer connected · view only" : "Viewer connected · extend test");
+        listener.status("Viewer connected");
         long lastSent = 0;
+        boolean hideCursor = false;
         while (!closed) {
             switch (in.readUnsignedByte()) {
                 case 0:
@@ -110,7 +114,7 @@ public final class RfbServer implements AutoCloseable {
                 case 2:
                     in.readUnsignedByte(); int encodings = in.readUnsignedShort();
                     if (encodings > 512) throw new IOException("Too many encodings");
-                    for (int i = 0; i < encodings; i++) in.readInt();
+                    for (int i = 0; i < encodings; i++) if (in.readInt() == -239) hideCursor = true;
                     // Raw encoding is always valid in RFB even if not explicitly advertised.
                     break;
                 case 3:
@@ -122,7 +126,12 @@ public final class RfbServer implements AutoCloseable {
                     Frame frame = frames.get();
                     int w = Math.max(0, Math.min(requestedWidth, frame.width - x));
                     int h = Math.max(0, Math.min(requestedHeight, frame.height - y));
-                    out.writeByte(0); out.writeByte(0); out.writeShort(w > 0 && h > 0 ? 1 : 0);
+                    out.writeByte(0); out.writeByte(0); out.writeShort((w > 0 && h > 0 ? 1 : 0) + (hideCursor ? 1 : 0));
+                    if (hideCursor) {
+                        // Negotiated zero-size Cursor shape requests an invisible cursor.
+                        out.writeShort(0); out.writeShort(0); out.writeShort(0); out.writeShort(0); out.writeInt(-239);
+                        hideCursor = false;
+                    }
                     if (w > 0 && h > 0) {
                         out.writeShort(x); out.writeShort(y); out.writeShort(w); out.writeShort(h); out.writeInt(0);
                         byte[] row = new byte[w * (format.bpp / 8)];

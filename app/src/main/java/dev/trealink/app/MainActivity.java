@@ -11,6 +11,7 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.projection.MediaProjectionManager;
+import android.media.projection.MediaProjectionConfig;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -89,14 +90,15 @@ public final class MainActivity extends Activity {
         }
         requesting = true; updateState();
         MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
-        startActivityForResult(manager.createScreenCaptureIntent(), 42);
+        startActivityForResult(Build.VERSION.SDK_INT >= 34 && RemoteTouchService.enabled(this)
+                ? manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()) : manager.createScreenCaptureIntent(), 42);
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == 42) {
             requesting = false;
             if (result == RESULT_OK && data != null) {
-                Intent service = new Intent(this, MirrorService.class).putExtra("token", data).putExtra("wifi", wifi);
+                Intent service = new Intent(this, MirrorService.class).putExtra("token", data).putExtra("wifi", wifi).putExtra("wholeDisplay", RemoteTouchService.enabled(this));
                 startForegroundService(service);
             } else MirrorService.status = "Screen sharing cancelled. Tap Start to try again.";
             updateState();
@@ -112,7 +114,7 @@ public final class MainActivity extends Activity {
         status.setText(MirrorService.status);
         boolean network = active ? MirrorService.mode.equals("Wi-Fi") : wifi;
         connection.setText(network ? "Viewer address\n" + addresses() + "\nVNC 3.8 · Same network" : "USB: 127.0.0.1:5901\nadb forward tcp:5901 tcp:5900");
-        session.setText(active ? "Session password: " + MirrorService.password + "\n" + MirrorService.frameCount + " frames · " + (independent ? "test taps: " + MirrorService.carTapCount : "view only")
+        session.setText(active ? "Session password: " + MirrorService.password + "\n" + MirrorService.frameCount + " frames · " + (independent ? "test taps: " + MirrorService.carTapCount : RemoteTouchService.state(this))
                 : independent ? "Independent test surface only.\nAndroid Auto and car pairing are not implemented." : "A new 8-character password appears when sharing starts.");
     }
     private String addresses() {
@@ -128,12 +130,26 @@ public final class MainActivity extends Activity {
         return addresses.isEmpty() ? "No network address · connect to Wi-Fi first" : android.text.TextUtils.join("\n", addresses);
     }
     private void menu() {
-        new AlertDialog.Builder(this).setTitle("Trealink").setItems(new String[]{"Connection guide", "Wi-Fi settings", "Output mode", "About Trealink"}, (d, choice) -> {
+        new AlertDialog.Builder(this).setTitle("Trealink").setItems(new String[]{"Connection guide", "Wi-Fi settings", "Output mode", "Touch control", "Touch test", "About Trealink"}, (d, choice) -> {
             if (choice == 0) guide();
             else if (choice == 1) launch(new Intent(Settings.ACTION_WIFI_SETTINGS));
             else if (choice == 2) outputMode();
-            else new AlertDialog.Builder(this).setTitle("Trealink 0.2.0").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Independent phone mirroring plus an experimental app-owned display test.\n\nThe test accepts pointer input only on its own test surface. Android Auto hosting, JVC/Kenwood receiver pairing, audio and system-wide remote input are not implemented.").setPositiveButton("OK", null).show();
+            else if (choice == 3) touchControl();
+            else if (choice == 4) startActivity(new Intent(this, TouchTestActivity.class));
+            else new AlertDialog.Builder(this).setTitle("Trealink 0.3.0").setMessage("Inspired by T-Link 1.3.12, analyzed with REA. Phone mirroring with optional Accessibility-based direct touch, plus an independent display diagnostic.\n\nJVC/Kenwood receiver pairing, Android Auto hosting and audio remain unimplemented. Touch control requires explicit setup and full-screen capture.").setPositiveButton("OK", null).show();
         }).show();
+    }
+    private void touchControl() {
+        new AlertDialog.Builder(this).setTitle("Direct touch control")
+                .setMessage(RemoteTouchService.state(this) + "\n\nAllow the authenticated viewer to tap, drag and hold on your mirrored phone. Android requires you to enable Trealink Touch Control in Accessibility. Enable this before starting a full-screen mirroring session.\n\nUse your viewer's direct/absolute touch mode. The Kenwood USB connection is not implemented yet.")
+                .setPositiveButton("Enable direct touch", (d, w) -> {
+                    preferences.edit().putBoolean("touch_control", true).apply();
+                    if (!RemoteTouchService.connected()) launch(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    updateState();
+                }).setNeutralButton("Turn off", (d, w) -> {
+                    preferences.edit().putBoolean("touch_control", false).apply();
+                    RemoteTouchService.release(MirrorService.controlSessionId); updateState();
+                }).setNegativeButton("Cancel", null).show();
     }
     private void outputMode() {
         if (MirrorService.running || requesting) {
@@ -146,7 +162,7 @@ public final class MainActivity extends Activity {
                 }).setNegativeButton("Cancel", null).show();
     }
     private void guide() {
-        new AlertDialog.Builder(this).setTitle("Connect your display").setMessage("1. Choose USB (ADB) or Wi-Fi, then tap Start mirroring. Approve Android's screen-sharing prompt.\n\n2. USB: enable USB debugging on your phone, connect it to your computer, and run adb forward tcp:5901 tcp:5900. Connect a VNC viewer to 127.0.0.1:5901.\n\nWi-Fi: put both devices on the same trusted network. Connect a VNC viewer to the address shown here on port 5900. Standard VNC traffic is not encrypted.\n\n3. Enter the session password from Trealink. Use RFB 3.8 / VNC authentication. Video is view only, up to 5 frames/s. Android protects secure video and password screens.\n\n4. Tap Stop mirroring or Stop in the sharing notification. Rotation uses a fixed-size canvas and may add letterboxing.\n\nThis version does not pair with JVC/Kenwood receivers or carry audio. USB here uses ADB forwarding, not the receiver's USB accessory protocol.")
+        new AlertDialog.Builder(this).setTitle("Connect your display").setMessage("1. For direct touch, open Menu → Touch control, enable it, and follow Android Accessibility setup. Then choose phone screen mirroring and start a new full-screen sharing session.\n\n2. USB (ADB): enable USB debugging, connect your phone to a computer, and run adb forward tcp:5901 tcp:5900. Connect a VNC viewer to 127.0.0.1:5901.\n\nWi-Fi: put both devices on the same trusted network. Connect a VNC viewer to the displayed address on port 5900. Standard VNC traffic is not encrypted.\n\n3. Enter Trealink's session password. Use RFB 3.8 / VNC authentication. Select direct/absolute touch mode in the viewer. Taps, holds and drags use one finger; pinch and remote typing are unavailable. Without touch setup, mirroring is view only.\n\n4. Turn touch control off locally or stop sharing to end remote control. The phone must be unlocked. Rotation may letterbox the picture; black bars are not touch targets.\n\nThis version does not pair with JVC/Kenwood receivers or carry audio. USB here uses ADB forwarding, not the receiver's T-Link USB protocol.")
                 .setPositiveButton("Got it", null).show();
     }
     private void addShortcut(LinearLayout row, String label, Intent intent) { Button b = button(label); b.setOnClickListener(v -> launch(intent)); row.addView(b, new LinearLayout.LayoutParams(0, dp(48), 1)); }

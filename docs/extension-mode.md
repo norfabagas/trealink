@@ -2,6 +2,8 @@
 
 Status: **independent-display diagnostic implemented; Android Auto and car transport remain proposals**. Reviewed 2026-11-15. No verification on the user's phone or car has been performed.
 
+The user subsequently prioritized reliable direct touch on the mirrored phone over extension. That implementation and its remaining receiver-side limitation are documented in [direct-touch.md](direct-touch.md). The independent-display test below is retained as an experiment; Android Auto hosting is deferred.
+
 The user wants the phone to remain independently usable while a T-Link-only head unit shows and controls Android Auto. The reported hardware is **Samsung Galaxy A07, One UI 9**, and **Kenwood DMXGT400R**. Samsung identifies One UI 9 as Android 17. Exact handset SKU and head-unit firmware have not been inspected. Android 17 emulator tests are not Samsung-device or car-compatibility tests.
 
 ## Hardware-specific findings
@@ -16,7 +18,7 @@ The diagnostic uses **800 × 480 as a test canvas**, not as a claim about the re
 
 Choose **Menu → Output mode → Independent display test (no Android Auto)**, then start the test. This creates a private `DisplayManager` virtual display with `OWN_CONTENT_ONLY | PRESENTATION`, renders a clearly labeled test panel into it, and streams its pixels through the existing authenticated RFB transport. It does not obtain a `MediaProjection` token or read the phone screen.
 
-The independent display has its own heartbeat and tap counter. Authenticated, in-bounds RFB pointer events are sent only to that app-owned test view. No accessibility service, global input injection, root or arbitrary cross-app activity launching is used. The existing phone-mirroring mode remains view only. Stop releases the presentation, display, image reader and network listener. An explicitly selected connected-device foreground-service type keeps the app-owned network display session alive while another phone app is open.
+The independent display has its own heartbeat and tap counter. Authenticated, in-bounds RFB pointer events in this diagnostic are sent only to that app-owned test view. This mode does not use accessibility gestures, root or arbitrary cross-app activity launching. Phone-mirroring mode now has separate optional Accessibility-based direct touch. Stop releases the presentation, display, image reader and network listener. An explicitly selected connected-device foreground-service type keeps the app-owned network display session alive while another phone app is open.
 
 This diagnostic establishes a place to connect a future Android Auto decoder/renderer. Its test panel is not an Android Auto substitute and is not represented as a car-ready UI.
 
@@ -56,7 +58,7 @@ An independently drawn car dashboard is another possible source for the independ
 | Video source | Phone mirror via `MediaProjection`; diagnostic via an app-owned virtual display | Attach genuine Android Auto output to the independent surface |
 | Car interface | No Android Auto host | Compatible Android Auto receiver, session and lifecycle integration |
 | Transport | Standard password-authenticated RFB 3.8 over TCP; USB uses ADB forwarding | Actual receiver-compatible T-Link USB/session adapter |
-| Input | Phone mirror discards input; diagnostic routes bounded pointers only to its own test view | Parse actual receiver controls and route them to the Android Auto session only |
+| Input | Phone mirror has optional Accessibility touch; diagnostic routes bounded pointers only to its own test view | Parse actual receiver controls and route them to the Android Auto session only |
 | Audio | None | Validate receiver audio path, calls, microphone, focus and routing separately |
 | Connect behavior | Manual start and Android capture consent | Validate USB attachment/permission, explicit setup, disconnect cleanup and permitted background behavior |
 

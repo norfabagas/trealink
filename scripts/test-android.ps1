@@ -12,9 +12,12 @@ function ADB([string[]]$Arguments) {
     return $result
 }
 function Snapshot {
-    ADB @('shell','uiautomator','dump','/sdcard/trealink-test-ui.xml') | Out-Null
-    ADB @('pull','/sdcard/trealink-test-ui.xml',"$output\ui.xml") | Out-Null
-    return [xml](Get-Content -LiteralPath "$output\ui.xml" -Raw)
+    $lines=ADB @('shell','am','instrument','-w','dev.trealink.uiprobe/.UiSnapshot')
+    $line=$lines | Where-Object { $_ -match '^INSTRUMENTATION_RESULT: xml=' } | Select-Object -First 1
+    if (!$line) { throw "Non-suppressing UI probe failed: $lines" }
+    $xml=$line.ToString().Substring('INSTRUMENTATION_RESULT: xml='.Length)
+    $xml | Set-Content -Encoding utf8 "$output\ui.xml"
+    return [xml]$xml
 }
 function Click-Node($Node) {
     $numbers = [regex]::Matches($Node.bounds, '\d+') | ForEach-Object { [int]$_.Value }
@@ -49,7 +52,7 @@ function Capture([string]$Name, [string]$Password, [int]$Port) {
     if ($LASTEXITCODE -ne 0) { throw 'Actual screen framebuffer verification failed.' }
 }
 function Stop-Sharing([string]$Label = 'Stop mirroring') {
-    ADB @('shell','am','start','-n','dev.trealink.app/.MainActivity') | Out-Null
+    ADB @('shell','am','start','-W','-f','0x14000000','-n','dev.trealink.app/.MainActivity') | Out-Null
     Click-Text $Label
     $xml = Snapshot
     if (!($xml.SelectNodes('//node') | Where-Object text -EQ 'Ready to connect')) { throw 'Session did not stop.' }
@@ -58,10 +61,12 @@ function Stop-Sharing([string]$Label = 'Stop mirroring') {
 }
 
 & "$PSScriptRoot\test.ps1" -Jdk $Jdk
+& "$PSScriptRoot\build-ui-probe.ps1" -Sdk $Sdk -Jdk $Jdk
+ADB @('install','-r','-t',"$project\build\ui-probe\UiProbe.apk") | Out-Null
 ADB @('install','-r',"$project\build\Trealink-debug.apk") | Out-Null
 ADB @('shell','input','keyevent','KEYCODE_WAKEUP') | Out-Null
 ADB @('shell','input','keyevent','KEYCODE_MENU') | Out-Null
-ADB @('shell','am','start','-n','dev.trealink.app/.MainActivity') | Out-Null
+ADB @('shell','am','start','-W','-f','0x14000000','-n','dev.trealink.app/.MainActivity') | Out-Null
 $forwardPort = $null
 $networkRedirect = $false
 try {
@@ -106,7 +111,7 @@ try {
     Start-Sleep -Milliseconds 1000
     ADB @('shell','input','keyevent','KEYCODE_WAKEUP') | Out-Null
     ADB @('shell','input','keyevent','KEYCODE_MENU') | Out-Null
-    ADB @('shell','am','start','-n','dev.trealink.app/.MainActivity') | Out-Null
+    ADB @('shell','am','start','-W','-f','0x14000000','-n','dev.trealink.app/.MainActivity') | Out-Null
     $xml = Snapshot
     if (!($xml.SelectNodes('//node') | Where-Object text -EQ 'Ready to connect')) { throw 'System projection stop was not handled.' }
     $listeners = ADB @('shell','ss','-ltn') | Out-String
@@ -135,7 +140,7 @@ try {
     if ($focusBefore -notmatch 'com.android.settings' -or $focusAfter -notmatch 'com.android.settings') { throw 'Pointer input disturbed phone app focus.' }
     ADB @('shell','screencap','-p','/sdcard/trealink-independent-phone.png') | Out-Null
     ADB @('pull','/sdcard/trealink-independent-phone.png',"$output\extend-phone-settings.png") | Out-Null
-    ADB @('shell','am','start','-n','dev.trealink.app/.MainActivity') | Out-Null
+    ADB @('shell','am','start','-W','-f','0x14000000','-n','dev.trealink.app/.MainActivity') | Out-Null
     $xml = Snapshot
     if (!($xml.SelectNodes('//node') | Where-Object { $_.text -match 'test taps: 1\b' })) { throw 'App-owned test tap was not delivered exactly once.' }
     Pass 'viewer tap reaches only the independent test surface and preserves phone app focus'

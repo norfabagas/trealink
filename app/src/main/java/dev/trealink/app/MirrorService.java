@@ -34,6 +34,9 @@ public final class MirrorService extends Service {
     public static volatile int carTapCount;
     public static volatile String status = "Ready to connect", password = "", mode = "USB";
     public static volatile int frameCount;
+    public static volatile int frameWidth, frameHeight, capturedSourceWidth, capturedSourceHeight;
+    public static volatile boolean captureActive, wholeDisplayCapture;
+    public static volatile long controlSessionId;
     private MediaProjection projection;
     private VirtualDisplay display;
     private ImageReader reader;
@@ -46,6 +49,7 @@ public final class MirrorService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         if (running) return START_NOT_STICKY;
+        final long inputSession = ++controlSessionId;
         extending = intent.getBooleanExtra("extend", false);
         Intent token = intent.getParcelableExtra("token");
         if (token == null && !extending) { status = "Screen-sharing permission was not granted"; stopSelf(); return START_NOT_STICKY; }
@@ -67,18 +71,31 @@ public final class MirrorService extends Service {
             float scale = Math.min(1f, Math.min(720f / metrics.widthPixels, 1280f / metrics.heightPixels));
             int width = extending ? 800 : Math.max(2, ((int)(metrics.widthPixels * scale)) & ~1);
             int height = extending ? 480 : Math.max(2, ((int)(metrics.heightPixels * scale)) & ~1);
+            frameWidth = width; frameHeight = height;
+            capturedSourceWidth = metrics.widthPixels; capturedSourceHeight = metrics.heightPixels;
+            wholeDisplayCapture = !extending && (Build.VERSION.SDK_INT < 34 || intent.getBooleanExtra("wholeDisplay", false));
             AtomicReference<RfbServer.Frame> frames = new AtomicReference<>(new RfbServer.Frame(width, height, new int[width * height]));
             Handler main = new Handler(getMainLooper());
-            RfbServer.PointerListener input = extending ? (buttons, x, y) -> main.post(() -> {
-                if (running && extending && extensionView != null) extensionView.pointer(buttons, x, y);
-            }) : null;
+            RfbServer.PointerListener input = new RfbServer.PointerListener() {
+                @Override public void pointer(int buttons, int x, int y) {
+                    main.post(() -> {
+                        if (!running || controlSessionId != inputSession) return;
+                        if (extending && extensionView != null) extensionView.pointer(buttons, x, y);
+                        else RemoteTouchService.pointer(inputSession, buttons, x, y);
+                    });
+                }
+                @Override public void disconnected() { main.post(() -> RemoteTouchService.release(inputSession)); }
+            };
             server = new RfbServer(mode.equals("Wi-Fi") ? "0.0.0.0" : "127.0.0.1", 5900, password, frames, value -> {
                 if (running) status = value;
                 if (value.equals("Waiting for viewer")) main.post(() -> { if (extensionView != null) extensionView.resetPointer(); });
             }, input);
             if (!extending) {
                 projection = getSystemService(MediaProjectionManager.class).getMediaProjection(Activity.RESULT_OK, token);
-                projection.registerCallback(new MediaProjection.Callback() { @Override public void onStop() { stopSelf(); } }, main);
+                projection.registerCallback(new MediaProjection.Callback() {
+                    @Override public void onStop() { captureActive = false; RemoteTouchService.release(inputSession); stopSelf(); }
+                    @Override public void onCapturedContentResize(int width, int height) { capturedSourceWidth = width; capturedSourceHeight = height; }
+                }, main);
             }
             reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
             reader.setOnImageAvailableListener(source -> {
@@ -107,7 +124,7 @@ public final class MirrorService extends Service {
                 display = projection.createVirtualDisplay("Trealink", width, height, metrics.densityDpi,
                         DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
             }
-            running = true; status = "Waiting for viewer"; server.start();
+            running = true; captureActive = !extending; status = "Waiting for viewer"; server.start();
         } catch (IOException | RuntimeException e) {
             Log.e("Trealink", "Cannot start sharing", e);
             status = "Cannot start: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
@@ -124,7 +141,8 @@ public final class MirrorService extends Service {
     }
 
     @Override public void onDestroy() {
-        running = false; password = "";
+        running = false; captureActive = false; password = "";
+        RemoteTouchService.release(controlSessionId); controlSessionId++;
         if (server != null) try { server.close(); } catch (IOException ignored) { }
         if (presentation != null) presentation.dismiss();
         extensionView = null;

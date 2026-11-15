@@ -27,7 +27,7 @@ $sources = @(Get-ChildItem "$project\app\src\main\java" -Recurse -Filter '*.java
 Invoke-Checked "$Jdk\bin\javac.exe" (@('-encoding', 'UTF-8', '--release', '8', '-classpath', $android, '-d', "$build\classes") + $sources)
 Invoke-Checked "$Jdk\bin\jar.exe" @('--create', '--file', "$build\classes.jar", '-C', "$build\classes", '.')
 Invoke-Checked "$tools\d8.bat" @('--lib', $android, '--min-api', '26', '--output', "$build\dex", "$build\classes.jar")
-Invoke-Checked "$tools\aapt.exe" @('package', '-f', '-M', "$project\app\src\main\AndroidManifest.xml", '-I', $android, '-F', "$build\staging\unsigned.apk")
+Invoke-Checked "$tools\aapt.exe" @('package', '-f', '-M', "$project\app\src\main\AndroidManifest.xml", '-S', "$project\app\src\main\res", '-I', $android, '-F', "$build\staging\unsigned.apk")
 Push-Location "$build\dex"
 try { Invoke-Checked "$tools\aapt.exe" @('add', "$build\staging\unsigned.apk", 'classes.dex') }
 finally { Pop-Location }
