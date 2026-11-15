@@ -8,6 +8,8 @@ The reference APK is **JVC/Kenwood T-Link**, package `com.jvckenwood.tlink`, a V
 
 This is a working **view-only VNC prototype**, not a drop-in replacement for the proprietary JVC/Kenwood receiver integration. Receiver discovery/pairing, USB accessory transport, H.264 extensions, audio, and remote touch/keyboard control are not implemented. USB mode uses ADB forwarding. No original code, graphics or native libraries are bundled.
 
+An independent car display carrying Android Auto while the phone remains usable is being investigated. See [the extension-mode feasibility and integration design](docs/extension-mode.md). This is a proposal, not a feature of the current APK; Android Auto hosting and the actual T-Link receiver transport both require validation.
+
 ## Run on Android
 
 Requires Android 8.0+ (API 26), an Android phone or emulator, and a VNC viewer supporting **RFB 3.8 with VNC password authentication**.
