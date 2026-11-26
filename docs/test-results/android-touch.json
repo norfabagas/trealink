@@ -1,0 +1,19 @@
+{
+  "checks": [
+    "explicit touch opt-in and full-screen capture activate the Accessibility bridge",
+    "hover causes no phone action",
+    "viewer coordinate becomes an actual Android button tap",
+    "press and hold produces a native Android long click",
+    "continuous drag updates a native SeekBar",
+    "viewer swipe scrolls Android content",
+    "viewer disconnect releases a held touch",
+    "release outside the image lifts the Android finger before viewer disconnect",
+    "direct touch operates a different phone app without changing its settings",
+    "local off switch immediately blocks remote gestures",
+    "stop removes the remote input session and listener"
+  ],
+  "carTested": false,
+  "physicalPhoneTested": false,
+  "result": "PASS",
+  "date": "2026-11-15"
+}

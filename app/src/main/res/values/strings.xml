@@ -1,0 +1,3 @@
+<resources>
+    <string name="touch_control_description">Accept direct taps, drags and holds from a connected Trealink viewer. Gestures control your phone only while full-screen mirroring and Trealink touch control are enabled. Turn touch control off in Trealink or stop sharing to end remote input.</string>
+</resources>
